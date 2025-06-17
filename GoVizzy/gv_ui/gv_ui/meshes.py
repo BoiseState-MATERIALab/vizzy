@@ -96,29 +96,26 @@ def plot_bonds(cube: Cube, size: int=3., color: int="black"):
     """
     cube.get_bonds()
     num_pts = 1000
-    
+
     line_plots = []
-    
+
     for bond in cube.bonds:
         atomPos1 = cube.atoms.get_scaled_positions()[bond[0]]
-        x1, y1, z1 = tuple(p * cube.data3D.shape[idx] / Bohr for idx, p in enumerate(atomPos1))
+        x1, y1, z1 = tuple(p * cube.data3D.shape[idx] for idx, p in enumerate(atomPos1))
         atomPos2 = cube.atoms.get_scaled_positions()[bond[1]]
-        x2, y2, z2 = tuple(p * cube.data3D.shape[idx] / Bohr for idx, p in enumerate(atomPos2))
-        
-        # y = x1 -> x2
-        # y = y1 -> y2
-        # z = z1 -> z2
+        x2, y2, z2 = tuple(p * cube.data3D.shape[idx] for idx, p in enumerate(atomPos2))
+
         X = np.linspace(x1, x2, num_pts)
         Y = np.linspace(y1, y2, num_pts)
         Z = np.linspace(z1, z2, num_pts)
         p = ipv.plot(X, Y, Z, color)
         p.material.visible = True
         p.size = size
-        
+
         widgets.jslink((gvWidgets.bond_visibility_toggle, 'value'), (p, 'visible'))
         widgets.jslink((gvWidgets.bond_scale_slider, 'value'), (p, 'size'))
         widgets.jslink((gvWidgets.bond_color_picker, 'value'), (p, 'color'))
 
         line_plots.append(p)
-        
+
     return line_plots

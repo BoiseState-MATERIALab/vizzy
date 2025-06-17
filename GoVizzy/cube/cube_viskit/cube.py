@@ -158,33 +158,33 @@ class Cube:
         print("Done.")
 
 
-        def create_interpolator(self):
-            # Extract the grid points along each axis
-            x = np.linspace(self.origin[0], self.origin[0] +
-                            self.cell[0, 0], self.data3D.shape[0])
-            y = np.linspace(self.origin[1], self.origin[1] +
-                            self.cell[1, 1], self.data3D.shape[1])
-            z = np.linspace(self.origin[2], self.origin[2] +
-                            self.cell[2, 2], self.data3D.shape[2])
-            interpolator = RegularGridInterpolator(
-                (x, y, z), self.data3D, method='linear', bounds_error=False, fill_value=None)
-            return interpolator
+    def create_interpolator(self):
+        # Extract the grid points along each axis
+        x = np.linspace(self.origin[0], self.origin[0] +
+                        self.cell[0, 0], self.data3D.shape[0])
+        y = np.linspace(self.origin[1], self.origin[1] +
+                        self.cell[1, 1], self.data3D.shape[1])
+        z = np.linspace(self.origin[2], self.origin[2] +
+                        self.cell[2, 2], self.data3D.shape[2])
+        interpolator = RegularGridInterpolator(
+            (x, y, z), self.data3D, method='linear', bounds_error=False, fill_value=None)
+        return interpolator
 
-        def get_bonds(self, do_mic=True):
-            """
-            Constructs an adjacency matrix describing the connectivity
-            within the system.
+    def get_bonds(self, do_mic=True):
+        """
+        Constructs an adjacency matrix describing the connectivity
+        within the system.
 
-            Parameters
-            ----------
-            do_mic: bool, optional (default=True)
-            """
+        Parameters
+        ----------
+        do_mic: bool, optional (default=True)
+        """
 
-            g = Graph(self.atoms)
-            g.gen_adj_matrix(do_mic=do_mic)
-            nat = len(self.atoms)
-            self.bonds = tuple([(i, j) for i in range(nat)
-                for j in range(i) if g.graph[i, j] == 1])
+        g = Graph(self.atoms)
+        g.gen_adj_matrix(do_mic=do_mic)
+        nat = len(self.atoms)
+        self.bonds = tuple([(i, j) for i in range(nat)
+            for j in range(i) if g.graph[i, j] == 1])
 
     def get_polyhedra(self, do_mic=True):
         """
@@ -401,18 +401,18 @@ class Cube:
 
 
     
-    def load_and_display_cube(self, source):
+    def load_and_display_cube(self, source, quickUnit):
         # Delay import to avoid circular import at module level
         from gv_ui import DisplayUI
 
         if isinstance(source, str):
             try:
-                self.load_cube(source)
+                self.load_cube(source, quickUnit)
             except FileNotFoundError:
                 print(f"File not found: {source}")
                 return
         elif isinstance(source, io.StringIO):
-            self.load_cube(source)
+            self.load_cube(source, quickUnit)
         else:
             print("Invalid input: provide a file path string or a StringIO object")
             return

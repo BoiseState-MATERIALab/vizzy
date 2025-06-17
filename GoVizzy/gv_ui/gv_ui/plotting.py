@@ -183,10 +183,7 @@ class Visualizer:
                          'z':gvWidgets.slice_z_slider})
         display(out)
 
-
-        @classmethod
-
-        
+    @classmethod    
     def from_stringio(cls, stream) -> "Visualizer":
         """
         Creates a Visualizer from a StringIO stream in .cube format.
