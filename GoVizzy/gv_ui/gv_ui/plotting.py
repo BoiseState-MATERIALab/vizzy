@@ -7,6 +7,7 @@ from gv_ui import gvWidgets
 import matplotlib.pyplot as plt
 from ipyvolume import Figure
 
+
 class Visualizer:
     """
     A visualization class to create and display widgets from a provided Cube object.
@@ -93,6 +94,26 @@ class Visualizer:
         tab = widgets.Tab(children=children, titles=titles)
         display(tab)
 
+    def display_direct_volume(self, data3D):
+        """
+        Displays a 3D numpy array using ipyvolume without requiring a Cube object.
+        
+        Parameters
+        ----------
+        data3D : np.ndarray
+            A 3D numpy array representing the volumetric data.
+        """
+        self.figure = ipv.figure()
+        transfer = ipv.pylab.transfer_function(
+            level=[0.03, 0.5, 0.47],
+            opacity=[0.05, 0.09, 0.1],
+            level_width=0.1,
+            controls=False
+        )
+        ipv.style.background_color(gvWidgets.color.value)
+        ipv.pylab.volshow(data3D, ambient_coefficient=0.8, lighting=True, tf=transfer, controls=False)
+        ipv.show()
+    
     def display_cell(self):
         """
         Displays the cube's data3D with the volshow() method.
@@ -104,6 +125,7 @@ class Visualizer:
         ipv.pylab.volshow(cube.data3D, ambient_coefficient=0.8, lighting=True, tf=transfer, controls=False)
         ipv.show()
         
+    
     def display_cell_slices(self):
         """
         Displays the cube's data3D with the volshow() method,
@@ -160,3 +182,56 @@ class Visualizer:
                          'y':gvWidgets.slice_y_slider, 
                          'z':gvWidgets.slice_z_slider})
         display(out)
+
+
+        @classmethod
+
+        
+    def from_stringio(cls, stream) -> "Visualizer":
+        """
+        Creates a Visualizer from a StringIO stream in .cube format.
+
+        Parameters
+        ----------
+        stream : StringIO
+            A stream containing the text of a .cube file.
+
+        Returns
+        -------
+        Visualizer
+            An instance of Visualizer with a parsed Cube.
+        """
+        cube = Cube()
+
+        lines = stream.readlines()
+        cube.comment_lines = lines[:2]
+
+        # Parse number of atoms and origin
+        header = lines[2].split()
+        nat = int(header[0])
+        cube.origin = np.array([float(header[1]), float(header[2]), float(header[3])])
+
+        # Grid shape and basis vectors
+        cube.grid_shape = tuple(int(lines[3 + i].split()[0]) for i in range(3))
+        cube.basis = np.array([
+            [float(x) for x in lines[3 + i].split()[1:]] for i in range(3)
+        ])
+
+        # Atom information
+        atom_lines = lines[6:6 + nat]
+        cube.atom_numbers = []
+        cube.atom_charges = []
+        cube.atom_positions = []
+        for line in atom_lines:
+            parts = line.split()
+            cube.atom_numbers.append(int(parts[0]))
+            cube.atom_charges.append(float(parts[1]))
+            cube.atom_positions.append([float(parts[2]), float(parts[3]), float(parts[4])])
+        cube.atom_positions = np.array(cube.atom_positions)
+
+        # Volumetric data
+        data_lines = lines[6 + nat:]
+        data_values = [float(x) for line in data_lines for x in line.strip().split()]
+        cube.data3D = np.array(data_values).reshape(cube.grid_shape)
+
+        return cls(cube)

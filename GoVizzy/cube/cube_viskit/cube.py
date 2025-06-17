@@ -6,6 +6,9 @@ from itertools import product
 from dataclasses import dataclass, field, fields
 from struct import pack, error as struct_error
 from .graph import Graph
+import sys
+import io  # To check for io.StringIO
+from io import StringIO
 
 
 @dataclass
@@ -56,48 +59,54 @@ class Cube:
     origin: list[tuple] = field(default_factory=list, repr=False)
     prefix: str = field(default_factory=str, repr=False)
 
-    def load_cube(self, fname='', units='Bohr'):
+    
+    def load_cube(self, file_or_str=None, units='Bohr'):
         """
-        load_cube(cube_file)
-
-        Extracts numerical data from Gaussian *.cube files. Atomic units are assume
-
-        Parameters
-        ----------
-        units: string, optional (default='Bohr')
-
-        Returns
-        -------
-        None
-
-        References
-        ----------
-        [1] http://www.gaussian.com/g_tech/g_ur/u_cubegen.htm
-
-        To Do
-        -----
-        -> Nothing for the moment.
+        Load cube data from a filename, a string, or a file-like object (e.g. StringIO).
         """
+
+        if file_or_str is None:
+            assert self.fname, "No filename or string content provided."
+            file_content = None
+            filename = self.fname
+        else:
+            # Check for file-like object (StringIO or similar)
+            if hasattr(file_or_str, 'read'):
+                # It's a file-like object, read lines directly
+                print("Loading from StringIO...")
+                contents = file_or_str.readlines()
+                self.prefix = "filelike_input"
+                self.units = units
+            else:
+                # If input is a string, check if it's a filename or actual content
+                if '\n' in file_or_str or '\r' in file_or_str:
+                    # Treat as file content string
+                    print("Loading from StringIO content...")
+                    contents = file_or_str.splitlines()
+                    self.prefix = "string_input"
+                    self.units = units
+                else:
+                    # Treat as filename
+                    filename = file_or_str
+                    print(f"Loading {filename} ...")
+                    try:
+                        with open(filename, 'r') as f:
+                            contents = f.readlines()
+                        self.prefix = filename.split('.')[0]
+                        self.units = units
+                    except Exception as e:
+                        print("Unable to open file:")
+                        print(e)
+                        print("Exiting with code -1.")
+                        sys.exit(-1)
+
+        if 'contents' not in locals():
+            print("No content to parse.")
+            sys.exit(-1)
+
+        # Now parse as before, with the 'contents' list of lines...
+
         try:
-            if fname:
-                self.fname = fname
-            assert self.fname, "No filename provided."
-
-            print(f"Loading {self.fname} ...")
-
-            self.prefix = self.fname.split('.')[0]
-            self.units = units
-
-            with open(self.fname, 'r') as f:
-                contents = f.readlines()      
-        except Exception as e:
-            print("Unable to open file:")
-            print(e)
-            print("Exiting with code -1.")
-            exit(-1)
-            
-        try:     
-            # -- Parse the header of the cube file
             del contents[0:2]  # remove first 2 comment lines
             tmp = contents[0].split()
             num_atoms, origin = int(tmp[0]), np.array(list(map(float, tmp[1:])))
@@ -111,17 +120,15 @@ class Cube:
             R3 = list(map(float, header[2].split()[1:4]))
         except Exception as e:
             print("Error parsing header:")
-            print(e)            
+            print(e)
             print("Exiting with code -2.")
-            exit(-2)
-            
-        # -- Get supercell dimensions
+            sys.exit(-2)
+
         basis = np.array([R1, R2, R3], dtype='d').T  # store vectors as columns
         scalars = np.array([N1, N2, N3], dtype='d')
         self.cell = basis * scalars  # broadcasting
-            
+
         try:
-            # -- Create an ASE Atoms object
             tmp = np.array([line.split() for line in header[3:]], dtype='d')
             numbers = tmp[:, 0].astype(int)
             positions = tmp[:, 2:] * Bohr
@@ -129,56 +136,55 @@ class Cube:
                 numbers=numbers, positions=positions, cell=self.cell.T)
         except Exception as e:
             print("Error parsing atoms:")
-            print(e)            
+            print(e)
             print("Exiting with code -3.")
-            exit(-3)
+            sys.exit(-3)
 
-        # -- Construct the grid
         mesh = np.mgrid[0:N3, 0:N2, 0:N1]
         self.grid = np.einsum('ij,jklm->imlk', basis, mesh) + \
             origin[:, None, None, None]
 
         try:
-            # -- Isolate scalar field data
             del contents[0:num_atoms+4]
             data1D = np.array([float(val)
                             for line in contents for val in line.split()])
             self.data3D = data1D.reshape((N3, N2, N1), order='F')
         except Exception as e:
             print("Error parsing the scalar field data:")
-            print(e)            
+            print(e)
             print("Exiting with code -4.")
-            exit(-4)
+            sys.exit(-4)
 
         print("Done.")
 
-    def create_interpolator(self):
-        # Extract the grid points along each axis
-        x = np.linspace(self.origin[0], self.origin[0] +
-                        self.cell[0, 0], self.data3D.shape[0])
-        y = np.linspace(self.origin[1], self.origin[1] +
-                        self.cell[1, 1], self.data3D.shape[1])
-        z = np.linspace(self.origin[2], self.origin[2] +
-                        self.cell[2, 2], self.data3D.shape[2])
-        interpolator = RegularGridInterpolator(
-            (x, y, z), self.data3D, method='linear', bounds_error=False, fill_value=None)
-        return interpolator
 
-    def get_bonds(self, do_mic=True):
-        """
-        Constructs an adjacency matrix describing the connectivity
-        within the system.
+        def create_interpolator(self):
+            # Extract the grid points along each axis
+            x = np.linspace(self.origin[0], self.origin[0] +
+                            self.cell[0, 0], self.data3D.shape[0])
+            y = np.linspace(self.origin[1], self.origin[1] +
+                            self.cell[1, 1], self.data3D.shape[1])
+            z = np.linspace(self.origin[2], self.origin[2] +
+                            self.cell[2, 2], self.data3D.shape[2])
+            interpolator = RegularGridInterpolator(
+                (x, y, z), self.data3D, method='linear', bounds_error=False, fill_value=None)
+            return interpolator
 
-        Parameters
-        ----------
-        do_mic: bool, optional (default=True)
-        """
+        def get_bonds(self, do_mic=True):
+            """
+            Constructs an adjacency matrix describing the connectivity
+            within the system.
 
-        g = Graph(self.atoms)
-        g.gen_adj_matrix(do_mic=do_mic)
-        nat = len(self.atoms)
-        self.bonds = tuple([(i, j) for i in range(nat)
-            for j in range(i) if g.graph[i, j] == 1])
+            Parameters
+            ----------
+            do_mic: bool, optional (default=True)
+            """
+
+            g = Graph(self.atoms)
+            g.gen_adj_matrix(do_mic=do_mic)
+            nat = len(self.atoms)
+            self.bonds = tuple([(i, j) for i in range(nat)
+                for j in range(i) if g.graph[i, j] == 1])
 
     def get_polyhedra(self, do_mic=True):
         """
@@ -392,3 +398,32 @@ class Cube:
     #         f.write(block)
 
     #     return
+
+
+    
+    def load_and_display_cube(self, source):
+        # Delay import to avoid circular import at module level
+        from gv_ui import DisplayUI
+
+        if isinstance(source, str):
+            try:
+                self.load_cube(source)
+            except FileNotFoundError:
+                print(f"File not found: {source}")
+                return
+        elif isinstance(source, io.StringIO):
+            self.load_cube(source)
+        else:
+            print("Invalid input: provide a file path string or a StringIO object")
+            return
+
+        DisplayUI.show_ui()
+        DisplayUI.display_cube(self)
+        DisplayUI.display_app()
+
+        DisplayUI.dropdown.observe(
+            lambda change: DisplayUI.handle_dropdown_change(change, self),
+            names='value'
+        )
+    
+    

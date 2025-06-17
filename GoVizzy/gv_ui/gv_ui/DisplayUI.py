@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from gv_ui import plotting, meshes, gvWidgets
 from gv_ui.gvWidgets import mesh_visibility_toggle, atom_color_picker, atom_scale_slider, bond_visibility_toggle, bond_color_picker, bond_scale_slider
 from IPython.display import display
+import os
 
 # Define globals
 selected_option ='Slice Options'
@@ -47,7 +48,11 @@ def show_menu():
         large_box.clear_output(wait=True)
         large_box.layout = Layout(width="100%", height="85%", justify_content="center", margin="0 0 5% 40%")
 
-        image_path = './gv_ui/gv.png'  
+        # Get the absolute path of the current module's file
+        module_path = os.path.abspath(__file__)
+        # Get the directory containing the module
+        module_dir = os.path.dirname(module_path)
+        image_path = module_dir + '/gv.png'  
         image_data = plt.imread(image_path)
         plt.figure()
         plt.imshow(image_data)
@@ -96,6 +101,8 @@ def display_cube(cube):
         else:
             print("Invalid option selected")
         
+
+
 
 
 def display_app():

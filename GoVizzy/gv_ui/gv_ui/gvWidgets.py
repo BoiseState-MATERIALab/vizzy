@@ -153,7 +153,7 @@ def atom_scale_slider(atom: Mesh, description: str="Scale"):
 # Input form items
 form_items = [
 
-    Box([Label(value='Path to .cube file'),
+    Box([Label(value='Path to .cube file OR String io object'),
          Textarea()], layout=form_item_layout),
     color,
     Button(description='Submit', layout=Layout(flex='1 1 0%', width='auto')),
