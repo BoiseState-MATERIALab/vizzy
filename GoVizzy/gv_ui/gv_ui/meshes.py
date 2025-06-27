@@ -84,7 +84,7 @@ def plot_atoms(cube: Cube, sizes: dict[int, int]=vanderwaals, colors: dict[int, 
     for atom in range(len(cube.atoms)):
         position = cube.atoms.get_scaled_positions()[atom]
         number = cube.atoms.get_atomic_numbers()[atom]
-        x, z, y = tuple(p * cube.data3D.shape[idx] / Bohr for idx, p in enumerate(position))
+        x, z, y = tuple(p * cube.data3D.shape[idx] for idx, p in enumerate(position)) #bookmark
         mesh = plot_sphere_surface((x, y, z), sizes.get(number, default_size), colors.get(number, default_color))
         atom_meshes.append(mesh)
     return atom_meshes

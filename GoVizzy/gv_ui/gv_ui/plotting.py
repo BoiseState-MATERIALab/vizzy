@@ -1,12 +1,14 @@
 import os
 from cube_viskit import Cube
 import ipywidgets as widgets
+import pyvista as pv
 import ipyvolume as ipv
 from IPython.display import display
 from gv_ui import gvWidgets
 import matplotlib.pyplot as plt
 from ipyvolume import Figure
-
+import numpy as np
+import vtk
 
 class Visualizer:
     """
@@ -94,25 +96,6 @@ class Visualizer:
         tab = widgets.Tab(children=children, titles=titles)
         display(tab)
 
-    def display_direct_volume(self, data3D):
-        """
-        Displays a 3D numpy array using ipyvolume without requiring a Cube object.
-        
-        Parameters
-        ----------
-        data3D : np.ndarray
-            A 3D numpy array representing the volumetric data.
-        """
-        self.figure = ipv.figure()
-        transfer = ipv.pylab.transfer_function(
-            level=[0.03, 0.5, 0.47],
-            opacity=[0.05, 0.09, 0.1],
-            level_width=0.1,
-            controls=False
-        )
-        ipv.style.background_color(gvWidgets.color.value)
-        ipv.pylab.volshow(data3D, ambient_coefficient=0.8, lighting=True, tf=transfer, controls=False)
-        ipv.show()
     
     def display_cell(self):
         """
@@ -122,7 +105,9 @@ class Visualizer:
         self.figure = ipv.figure()
         transfer = ipv.pylab.transfer_function(level=[0.03, 0.5, 0.47], opacity=[0.05, 0.09, 0.1], level_width=0.1, controls=False)
         ipv.style.background_color(gvWidgets.color.value)
-        ipv.pylab.volshow(cube.data3D, ambient_coefficient=0.8, lighting=True, tf=transfer, controls=False)
+        lengths = cube.atoms.cell.lengths()
+        extent = [[0,lengths[0]],[0,lengths[1]],[0,lengths[2]]]
+        ipv.pylab.volshow(cube.data3D, ambient_coefficient=0.8, lighting=True, tf=transfer, controls=False) # extent = extent
         ipv.show()
         
     
@@ -173,7 +158,7 @@ class Visualizer:
         # Slice order is different to match ipyvolume, which plots the volume in a y-up orientation
         def update(x = 0, y = 0, z = 0):
             color = str(gvWidgets.slice_color.value)
-            xSlice.imshow(cube.data3D[:, :, x], cmap=color,)
+            xSlice.imshow(cube.data3D[:, :, x], color=color,)
             ySlice.imshow(cube.data3D[:, y, :], cmap=color,)
             zSlice.imshow(cube.data3D[z, :, :], cmap=color,)
             plt.show()
@@ -183,52 +168,201 @@ class Visualizer:
                          'z':gvWidgets.slice_z_slider})
         display(out)
 
-    @classmethod    
-    def from_stringio(cls, stream) -> "Visualizer":
+    def display_cell_pyvista_style(self):
         """
-        Creates a Visualizer from a StringIO stream in .cube format.
-
-        Parameters
-        ----------
-        stream : StringIO
-            A stream containing the text of a .cube file.
-
-        Returns
-        -------
-        Visualizer
-            An instance of Visualizer with a parsed Cube.
+        Fast version: build StructuredGrid from cube data (no plotting).
         """
-        cube = Cube()
+        cube = self.cube
+        data = np.array(cube.data3D)  # (nz, ny, nx)
+        nx, ny, nz = data.shape
 
-        lines = stream.readlines()
-        cube.comment_lines = lines[:2]
+        a_vec, b_vec, c_vec = np.array(cube.cell)
+        origin = np.array(cube.origin)
 
-        # Parse number of atoms and origin
-        header = lines[2].split()
-        nat = int(header[0])
-        cube.origin = np.array([float(header[1]), float(header[2]), float(header[3])])
+        # Generate grid points
+        points = np.zeros((nx * ny * nz, 3))
+        index = 0
+        for k in range(nz):
+            for j in range(ny):
+                for i in range(nx):
+                    points[index] = origin + \
+                        (i / (nx - 1)) * a_vec + \
+                        (j / (ny - 1)) * b_vec + \
+                        (k / (nz - 1)) * c_vec
+                    index += 1
 
-        # Grid shape and basis vectors
-        cube.grid_shape = tuple(int(lines[3 + i].split()[0]) for i in range(3))
-        cube.basis = np.array([
-            [float(x) for x in lines[3 + i].split()[1:]] for i in range(3)
-        ])
+        grid = pv.StructuredGrid()
+        grid.points = points
+        grid.dimensions = (nx, ny, nz)
+        grid["values"] = data.flatten(order="F")
 
-        # Atom information
-        atom_lines = lines[6:6 + nat]
-        cube.atom_numbers = []
-        cube.atom_charges = []
-        cube.atom_positions = []
-        for line in atom_lines:
-            parts = line.split()
-            cube.atom_numbers.append(int(parts[0]))
-            cube.atom_charges.append(float(parts[1]))
-            cube.atom_positions.append([float(parts[2]), float(parts[3]), float(parts[4])])
-        cube.atom_positions = np.array(cube.atom_positions)
+        return grid, a_vec, b_vec, c_vec, origin
 
-        # Volumetric data
-        data_lines = lines[6 + nat:]
-        data_values = [float(x) for line in data_lines for x in line.strip().split()]
-        cube.data3D = np.array(data_values).reshape(cube.grid_shape)
+    import vtk
 
-        return cls(cube)
+    def display_cell_slices_pyvista_style(self):
+        cube = self.cube
+
+        # Get grid and geometry
+        grid, a_vec, b_vec, c_vec, origin = self.display_cell_pyvista_style()
+        vtk_data = grid  # Get underlying vtkStructuredGrid object
+
+        xmin, xmax, ymin, ymax, zmin, zmax = grid.bounds
+
+        # Setup plotter
+        plotter = pv.Plotter()
+        plotter.set_background("white")
+
+        # Add isosurface as before
+        surface = grid.threshold(value=0.1)
+        plotter.add_mesh(surface, cmap="reds", opacity=0.5)
+
+        # Add bounding box lines (same as before)
+        corners = [
+            origin,
+            origin + a_vec,
+            origin + b_vec,
+            origin + c_vec,
+            origin + a_vec + b_vec,
+            origin + a_vec + c_vec,
+            origin + b_vec + c_vec,
+            origin + a_vec + b_vec + c_vec
+        ]
+        edges = [
+            (0, 1), (0, 2), (0, 3),
+            (1, 4), (1, 5),
+            (2, 4), (2, 6),
+            (3, 5), (3, 6),
+            (4, 7), (5, 7), (6, 7)
+        ]
+        for i, j in edges:
+            line = pv.Line(corners[i], corners[j])
+            plotter.add_mesh(line, color="black", line_width=1)
+
+        xLen = len(cube.data3D[0][0])
+        yLen = len(cube.data3D[0])
+        zLen = len(cube.data3D)
+
+        gvWidgets.slice_x_slider.max = xLen - 1
+        gvWidgets.slice_y_slider.max = yLen - 1
+        gvWidgets.slice_z_slider.max = zLen - 1
+
+        # Initial slice origins (middle)
+        x0 = 0.5 * (xmin + xmax)
+        y0 = 0.5 * (ymin + ymax)
+        z0 = 0.5 * (zmin + zmax)
+
+        # --- SETUP VTK CUTTERS FOR X, Y, Z slices ONCE ---
+
+        # Create vtkPlanes for slicing
+        plane_x = vtk.vtkPlane()
+        plane_x.SetNormal(1, 0, 0)
+        plane_x.SetOrigin(x0, 0, 0)
+
+        plane_y = vtk.vtkPlane()
+        plane_y.SetNormal(0, 1, 0)
+        plane_y.SetOrigin(0, y0, 0)
+
+        plane_z = vtk.vtkPlane()
+        plane_z.SetNormal(0, 0, 1)
+        plane_z.SetOrigin(0, 0, z0)
+
+        # Create vtkCutter for each plane
+        cutter_x = vtk.vtkCutter()
+        cutter_x.SetCutFunction(plane_x)
+        cutter_x.SetInputData(vtk_data)
+        cutter_x.Update()
+
+        cutter_y = vtk.vtkCutter()
+        cutter_y.SetCutFunction(plane_y)
+        cutter_y.SetInputData(vtk_data)
+        cutter_y.Update()
+
+        cutter_z = vtk.vtkCutter()
+        cutter_z.SetCutFunction(plane_z)
+        cutter_z.SetInputData(vtk_data)
+        cutter_z.Update()
+
+        # Build mappers and actors once
+        # Create slice actors dictionary in enclosing scope
+        slice_actors = {}
+        # Add initial slice actors
+        slice_actors = {
+            "x": plotter.add_mesh(pv.wrap(cutter_x.GetOutput()), color="black", opacity=0.5),
+            "y": plotter.add_mesh(pv.wrap(cutter_y.GetOutput()), color="black", opacity=0.5),
+            "z": plotter.add_mesh(pv.wrap(cutter_z.GetOutput()), color="black", opacity=0.5)
+        }
+        mapper_x = vtk.vtkPolyDataMapper()
+        mapper_x.SetInputConnection(cutter_x.GetOutputPort())
+        actor_x = vtk.vtkActor()
+        actor_x.SetMapper(mapper_x)
+        actor_x.GetProperty().SetColor(0, 0, 0)
+        actor_x.GetProperty().SetOpacity(0.5)
+        plotter.renderer.AddActor(actor_x)
+
+        mapper_y = vtk.vtkPolyDataMapper()
+        mapper_y.SetInputConnection(cutter_y.GetOutputPort())
+        actor_y = vtk.vtkActor()
+        actor_y.SetMapper(mapper_y)
+        actor_y.GetProperty().SetColor(0, 0, 0)
+        actor_y.GetProperty().SetOpacity(0.5)
+        plotter.renderer.AddActor(actor_y)
+
+        mapper_z = vtk.vtkPolyDataMapper()
+        mapper_z.SetInputConnection(cutter_z.GetOutputPort())
+        actor_z = vtk.vtkActor()
+        actor_z.SetMapper(mapper_z)
+        actor_z.GetProperty().SetColor(0, 0, 0)
+        actor_z.GetProperty().SetOpacity(0.5)
+        plotter.renderer.AddActor(actor_z)
+        
+        # --- UPDATE FUNCTION using VTK plane origins ---
+        def update(x=0, y=0, z=0):
+            x_ratio = x / (xLen - 1) if xLen > 1 else 0
+            y_ratio = y / (yLen - 1) if yLen > 1 else 0
+            z_ratio = z / (zLen - 1) if zLen > 1 else 0
+
+            new_x = xmin + x_ratio * (xmax - xmin)
+            new_y = ymin + y_ratio * (ymax - ymin)
+            new_z = zmin + z_ratio * (zmax - zmin)
+
+            # Update plane origins
+            plane_x.SetOrigin(new_x, 0, 0)
+            plane_y.SetOrigin(0, new_y, 0)
+            plane_z.SetOrigin(0, 0, new_z)
+
+            # Update cutters
+            cutter_x.Update()
+            cutter_y.Update()
+            cutter_z.Update()
+
+            # Update actors with new geometry
+            for axis, cutter in zip(["x", "y", "z"], [cutter_x, cutter_y, cutter_z]):
+                mapper = slice_actors[axis].GetMapper()
+                mapper.SetInputData(pv.wrap(cutter.GetOutput()))
+                mapper.Update()
+
+            plotter.render()
+
+        out = widgets.interactive_output(update, {
+            'x': gvWidgets.slice_x_slider,
+            'y': gvWidgets.slice_y_slider,
+            'z': gvWidgets.slice_z_slider
+        })
+        display(out)
+
+        pv.set_jupyter_backend('trame')
+        plotter.show()
+
+
+
+    
+    
+    
+
+
+
+        
+
+
+

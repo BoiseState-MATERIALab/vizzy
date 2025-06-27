@@ -157,7 +157,38 @@ class Cube:
 
         print("Done.")
 
+    def load_cube_from_np(self, cube_dict, units='Bohr'):
+        """
+        Load cube data from a pre-built dictionary:
+        {
+            'atoms': Atoms object,
+            'data': np.ndarray (scalar field),
+            'origin': np.ndarray (origin)
+        }
 
+        This lets you skip file parsing and directly set attributes.
+        """
+
+        # Required fields
+        self.atoms = cube_dict['atoms']
+        self.data3D = cube_dict['data']
+        self.origin = cube_dict['origin']
+        self.units = units
+
+        # Derive the cell from the Atoms object (same as load_cube)
+        self.cell = self.atoms.cell.array  # ensure it's a NumPy array
+
+        # Reconstruct the grid: same logic as load_cube
+        N3, N2, N1 = self.data3D.shape
+        basis = (self.cell.T / np.array([N1, N2, N3])).T  # 3x3 basis vectors
+
+        mesh = np.mgrid[0:N3, 0:N2, 0:N1]
+        self.grid = np.einsum('ij,jklm->imlk', basis, mesh) + \
+                    self.origin[:, None, None, None]
+
+        print("Cube loaded from numpy dictionary.")
+
+        
     def create_interpolator(self):
         # Extract the grid points along each axis
         x = np.linspace(self.origin[0], self.origin[0] +
