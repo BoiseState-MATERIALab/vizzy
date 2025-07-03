@@ -5,6 +5,7 @@ import ipyvolume as ipv
 import numpy as np
 from ase.units import Bohr 
 from IPython.display import display
+import pyvista as pv
 
 # taken from https://github.com/sweaver2112/periodic-table-data/blob/main/pTable.js
 vanderwaals = {
@@ -119,3 +120,36 @@ def plot_bonds(cube: Cube, size: int=3., color: int="black"):
         line_plots.append(p)
 
     return line_plots
+
+def plot_atoms_pyvista(cube, plotter=None, sizes=vanderwaals, colors=default_colors, origin=None):
+    if plotter is None:
+        plotter = pv.Plotter()
+    
+    if origin is None:
+        origin = np.array([0., 0., 0.])
+
+    default_radius = 1.5  # Angstroms for fallback radius
+    size_multiplier = 10.0  # Increase this to make atoms bigger
+
+    cell = cube.atoms.get_cell()
+    pos_scaled = cube.atoms.get_scaled_positions()
+
+    for atom in range(len(cube.atoms)):
+        cart_pos = np.dot(pos_scaled[atom], cell)  # Cartesian position in Angstroms
+        adjusted_pos = cart_pos - origin  # Keep old position calculation
+
+        number = cube.atoms.get_atomic_numbers()[atom]
+
+        radius_pm = sizes.get(number, default_radius * 100)  # radius in pm
+        radius = (radius_pm / 100) * size_multiplier  # convert pm to Å and multiply size
+
+        sphere = pv.Sphere(
+            radius=radius,
+            center=adjusted_pos,
+            theta_resolution=20,
+            phi_resolution=20
+        )
+        plotter.add_mesh(sphere, color=colors.get(number, "red"), name=f"atom_{atom}", opacity=0.5)
+
+
+
